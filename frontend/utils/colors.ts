@@ -1,20 +1,18 @@
-// Beautiful, modern color palette for clusters
 export const clusterColors = [
-  "#4f46e5", // Indigo
-  "#7c3aed", // Purple
-  "#2563eb", // Blue
-  "#0891b2", // Cyan
-  "#059669", // Emerald
-  "#dc2626", // Red
-  "#d97706", // Amber
-  "#7c3aed", // Violet
-  "#db2777", // Pink
-  "#0284c7", // Sky
-  "#65a30d", // Lime
-  "#0d9488", // Teal
-  "#9333ea", // Purple
-  "#e11d48", // Rose
-  "#2563eb", // Blue
+  "#6366f1", // Sleek Indigo
+  "#8b5cf6", // Radiant Violet
+  "#3b82f6", // Electric Blue
+  "#06b6d4", // Polar Cyan
+  "#10b981", // Emerald Mint
+  "#f43f5e", // Rosewood Pink
+  "#f59e0b", // Golden Amber
+  "#0284c7", // Deep Sky Blue
+  "#84cc16", // Lime Punch
+  "#14b8a6", // Sea Foam Teal
+  "#a855f7", // Royalty Purple
+  "#ec4899", // Magenta Flush
+  "#f97316", // Electric Orange
+  "#64748b", // Premium Slate
 ];
 
 export const getColor = (id: string | number): string => {
@@ -30,7 +28,6 @@ export const getColorWithOpacity = (
   opacity: number = 0.2
 ): string => {
   const color = getColor(id);
-  // Convert hex to rgba
   const hex = color.replace("#", "");
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
@@ -38,11 +35,10 @@ export const getColorWithOpacity = (
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 };
 
-// Status colors
 export const statusColors = {
-  idle: "#64748b",
-  pending: "#f59e0b",
-  running: "#3b82f6",
-  completed: "#22c55e",
-  failed: "#ef4444",
+  idle: "#64748b", // Slate
+  pending: "#f59e0b", // Amber
+  running: "#3b82f6", // Blue
+  completed: "#10b981", // Emerald
+  failed: "#f43f5e", // Rose
 };

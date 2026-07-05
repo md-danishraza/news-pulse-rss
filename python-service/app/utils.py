@@ -1,19 +1,44 @@
-from urllib.parse import urlparse, urlunparse, parse_qs
+from urllib.parse import urlparse, urlunparse
 import re
 import hashlib
 from datetime import datetime
 import logging
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-def normalize_url(url):
+# Lazy initialization flag for NLTK downloader
+_nltk_initialized = False
+
+
+def _init_nltk():
+    """Silently ensure required NLTK datasets are downloaded and ready."""
+    global _nltk_initialized
+    if _nltk_initialized:
+        return
+    try:
+        import nltk
+        try:
+            nltk.data.find('corpora/stopwords')
+        except LookupError:
+            nltk.download('stopwords', quiet=True)
+        try:
+            nltk.data.find('taggers/averaged_perceptron_tagger')
+        except LookupError:
+            nltk.download('averaged_perceptron_tagger', quiet=True)
+        _nltk_initialized = True
+    except Exception as e:
+        logger.warning(f"Fail-safe warning: NLTK lazy-load skipped or failed. {e}")
+
+
+def normalize_url(url: str) -> str:
     """
     Normalize URL by removing tracking parameters and standardizing format.
     Example: site.com/news/1?utm_source=rss -> site.com/news/1
     """
     if not url:
         return ""
-    
+
     try:
         parsed = urlparse(url)
         # Remove query parameters and fragments
@@ -33,45 +58,77 @@ def normalize_url(url):
         logger.warning(f"Failed to normalize URL {url}: {e}")
         return url
 
-def extract_keywords(text, stopwords, min_word_length=3):
+
+def strip_html(text: str) -> str:
+    """
+    Remove HTML tags, links, and formatting cleanly using BeautifulSoup.
+    """
+    if not text:
+        return ""
+    try:
+        # Use built-in html.parser which is secure and fast
+        soup = BeautifulSoup(text, "html.parser")
+        return soup.get_text(separator=" ")
+    except Exception:
+        # Fallback regex if BS4 fails
+        return re.sub(r'<[^>]*>', ' ', text)
+
+
+def extract_keywords(text: str, stopwords: set, min_word_length: int = 3) -> list:
     """
     Extract meaningful keywords from text.
-    Returns a LIST (not set) for MongoDB compatibility.
+    Uses HTML cleaning, expanded stopwords, and fail-safe POS-tag filtering
+    to keep only nouns and adjectives, completely filtering out messy verbs/adverbs.
     """
     if not text:
         return []
-    
-    # Convert to lowercase and remove punctuation
-    text = text.lower()
-    text = re.sub(r'[^\w\s]', ' ', text)
-    
-    # Split into words
-    words = text.split()
-    
-    # Filter: length check, stopwords, and alphanumeric only
+
+    # Clean HTML first
+    text_clean = strip_html(text)
+
+    # Convert to lowercase and strip non-alphabetic chars
+    text_clean = text_clean.lower()
+    text_clean = re.sub(r'[^a-z\s]', ' ', text_clean)
+
+    words = text_clean.split()
+
+    # Fail-safe Part-of-Speech Tagging
+    keep_words = []
+    _init_nltk()
+    try:
+        import nltk
+        tagged = nltk.pos_tag(words)
+        # Keep only Nouns (NN, NNS, NNP, NNPS) and Adjectives (JJ, JJR, JJS)
+        for word, tag in tagged:
+            if tag.startswith('NN') or tag.startswith('JJ'):
+                keep_words.append(word)
+    except Exception as e:
+        logger.debug(f"POS tagging fallback triggered: {e}")
+        keep_words = words
+
+    # Filter by size and stopword lists
     keywords = set()
-    for word in words:
+    for word in keep_words:
         if len(word) >= min_word_length and word not in stopwords:
-            # Keep only alphabetic characters
-            clean_word = re.sub(r'[^a-z]', '', word)
-            if clean_word and len(clean_word) >= min_word_length:
-                keywords.add(clean_word)
-    
-    # Return as list for MongoDB compatibility
+            if word.isalpha():
+                keywords.add(word)
+
     return list(keywords)
 
-def generate_article_hash(normalized_url, title):
+
+def generate_article_hash(normalized_url: str, title: str) -> str:
     """Generate unique hash for deduplication."""
     if not normalized_url or not title:
         return hashlib.md5(f"{normalized_url}|{title}".encode('utf-8')).hexdigest()
     content = f"{normalized_url}|{title}".encode('utf-8')
     return hashlib.md5(content).hexdigest()
 
-def parse_date(date_str):
+
+def parse_date(date_str: str):
     """Parse RSS date formats robustly."""
     if not date_str:
         return datetime.utcnow()
-    
+
     # Try common formats using dateparser if available
     try:
         import dateparser
@@ -80,30 +137,27 @@ def parse_date(date_str):
             return parsed
     except ImportError:
         pass
-    
+
     # Fallback: try to parse with dateutil
     try:
         from dateutil import parser
         return parser.parse(str(date_str))
-    except:
+    except Exception:
         # If all else fails, use current time
         logger.warning(f"Could not parse date: {date_str}")
         return datetime.utcnow()
 
-def get_stopwords():
-    """Get stopword list - can use NLTK or a predefined list."""
+
+def get_stopwords() -> set:
+    """Get expanded stopword list merging NLTK and common news/web boilerplate."""
+    base_stopwords = set()
     try:
-        import nltk
-        from nltk.corpus import stopwords
-        # Try to download if not already available
-        try:
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
-            nltk.download('stopwords', quiet=True)
-        return set(stopwords.words('english'))
-    except:
-        # Fallback common stopwords
-        return {
+        _init_nltk()
+        from nltk.corpus import stopwords as nltk_stopwords
+        base_stopwords = set(nltk_stopwords.words('english'))
+    except Exception:
+        # Static fallback list if NLTK is entirely missing
+        base_stopwords = {
             'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i',
             'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
             'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her',
@@ -117,3 +171,20 @@ def get_stopwords():
             'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these',
             'give', 'day', 'most', 'us'
         }
+
+    # Expanded news-specific boilerplate keywords to ignore
+    news_boilerplate = {
+        'com', 'org', 'net', 'http', 'https', 'www', 'html', 'href', 'url', 'link',
+        'image', 'photo', 'video', 'audio', 'media', 'click', 'subscribe', 'read',
+        'more', 'share', 'twitter', 'facebook', 'instagram', 'youtube', 'guardian',
+        'bbc', 'npr', 'reuters', 'ap', 'afp', 'cnn', 'fox', 'nbc', 'cbs', 'news',
+        'said', 'says', 'would', 'could', 'told', 'also', 'one', 'two', 'new', 'year',
+        'years', 'day', 'days', 'week', 'month', 'today', 'yesterday', 'tomorrow',
+        'first', 'last', 'next', 'many', 'much', 'some', 'any', 'every', 'all',
+        'imminently', 'mean', 'attend', 'place', 'former', 'report', 'reported',
+        'breaking', 'update', 'caption', 'target', 'blank', 'newsletter', 'advertisement',
+        'copyright', 'reserved', 'rights', 'associated', 'press', 'feed', 'rss', 'post',
+        'published', 'minutes', 'hours', 'ago', 'read-more', 'continue', 'story', 'ad'
+    }
+
+    return base_stopwords.union(news_boilerplate)
