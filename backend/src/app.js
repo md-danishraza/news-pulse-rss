@@ -7,6 +7,7 @@ const clustersRoutes = require("./routes/clusters");
 const timelineRoutes = require("./routes/timeline");
 const ingestRoutes = require("./routes/ingest");
 const sourcesRoutes = require("./routes/sources");
+const adminRoutes = require("./routes/admin");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -20,6 +21,7 @@ app.use("/api/clusters", clustersRoutes);
 app.use("/api/timeline", timelineRoutes);
 app.use("/api/ingest", ingestRoutes);
 app.use("/api/sources", sourcesRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Health check
 app.get("/health", async (req, res) => {
